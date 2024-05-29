@@ -395,9 +395,13 @@ void apng_t::processFrame(const chunkIter_t &chunkBegin, const chunkIter_t &chun
 
 	// This constructs a disposeOp_t::background initialised bitmap anyway.
 	auto frame = makeUnique<bitmap_t>(_width, _height, format);
-	if (fcTL.disposeOp() == disposeOp_t::none && frameIndex != 0)
+	auto previousDisposeOp = disposeOp_t::background;
+	if (frameIndex != 0) {
+		previousDisposeOp = _frames.back().first.disposeOp();
+	}
+	if (previousDisposeOp == disposeOp_t::none && frameIndex != 0)
 		compositFrame<blendOp_t::source>(*_frames.back().second, *frame, format, fcTL_t{});
-	else if (fcTL.disposeOp() == disposeOp_t::previous)
+	else if (previousDisposeOp == disposeOp_t::previous)
 	{
 		auto source = _frames.end();
 		// Only if there are frames to backtrack over.
@@ -409,9 +413,15 @@ void apng_t::processFrame(const chunkIter_t &chunkBegin, const chunkIter_t &chun
 			// And composit it in as the basis of this frame.
 			compositFrame<blendOp_t::source>(*source->second, *frame, format, fcTL_t());
 		}
+	} else if (previousDisposeOp == disposeOp_t::background) {
+		// copy the previous frame into the current frame and clear the last frame area to the background colour.
+		const auto &prevFcTL = _frames.back().first;
+		compositFrame<blendOp_t::source>(*_frames.back().second, *frame, format, fcTL_t());
+		bitmap_t tmpPartialFrame(prevFcTL.width(), prevFcTL.height(), format);
+		compositFrame<blendOp_t::source>(tmpPartialFrame, *frame, format, prevFcTL);
 	}
 
-	if (fcTL.blendOp() == blendOp_t::source || fcTL.disposeOp() == disposeOp_t::background)
+	if (fcTL.blendOp() == blendOp_t::source || previousDisposeOp == disposeOp_t::background)
 		compositFrame<blendOp_t::source>(partialFrame, *frame, format, fcTL);
 	else
 		compositFrame<blendOp_t::over>(partialFrame, *frame, format, fcTL);
